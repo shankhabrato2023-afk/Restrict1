@@ -843,6 +843,45 @@ async def close_menu(client, query):
     except:
         await query.answer("Menu closed.")
 
+@app.on_message(filters.command(["pixel"]) & (filters.user(ADMINS) | filters.user(SUDOS)))
+async def pixel_bypass_handler(client: Client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply(
+            "**Usage:**\n`/pixel https://pixeldrain.com/u/xxxx`\n\n"
+            "Or multiple comma-separated links:\n"
+            "`/pixel link1,link2,link3`"
+        )
+
+    # Extract the input string after the command
+    input_text = message.text.split(None, 1)[1]
+    
+    # Extract all Pixeldrain IDs using Regex
+    # This gracefully handles commas, spaces, or mixed formatting
+    matches = re.findall(r"pixeldrain\.com/u/([a-zA-Z0-9_-]+)", input_text)
+    
+    if not matches:
+        return await message.reply(
+            "❌ **No valid Pixeldrain links found.**\n"
+            "Please ensure the links follow the format: `https://pixeldrain.com/u/XXXX`"
+        )
+
+    # Convert IDs to bypassed links
+    bypassed_links = [f"https://cdn.pixeldrain.eu.cc/{match}" for match in matches]
+    
+    # Join with commas and wrap in backticks for 1-tap copying
+    bypassed_text = ",".join(bypassed_links)
+    
+    reply_text = (
+        "✨ **Pixeldrain Bypass Successful!** ✨\n\n"
+        "**📥 Bypassed Links (Tap to copy):**\n"
+        f"`{bypassed_text}`\n\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "🌐 **Original Bypass Website:** [Click Here](https://pixeldrain-bypass.gamedrive.org/)\n"
+        "📜 **Userscript:** [Install Script](https://pixeldrain-bypass.gamedrive.org/pixeldrain-bypass.user.js)"
+    )
+    
+    await message.reply(reply_text, disable_web_page_preview=True)
+
 @app.on_message(filters.command(["status"]) & (filters.user(ADMINS) | filters.user(SUDOS)))
 async def status_style_handler(client, message):
     uptime_seconds = int(time.time() - BOT_START_TIME)
@@ -2634,7 +2673,8 @@ async def main():
             BotCommand("broadcast", "🗞 Broadcast Message"),
             BotCommand("botstats", "🔎 Check User Stats"),
             BotCommand("status", "🦥 Check System Status"),
-            BotCommand("log", "📄 Fetch Bot Logs")
+            BotCommand("log", "📄 Fetch Bot Logs"),
+            BotCommand("pixel", "✨ Bypass Pixeldrain Links")
         ]
 
         # C. Set Default Scope (Everyone sees public_commands)
