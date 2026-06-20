@@ -577,12 +577,12 @@ def progress(current, total, message, typ, task_uuid=None):
 
     try:
         msg_id = int(message.id)
+        chat_id = int(message.chat.id)
     except:
-        try:
-            msg_id = int(message)
-        except:
-            return
-    key = f"{msg_id}:{typ}"
+        return
+        
+    # Make key globally unique across all users
+    key = f"{chat_id}:{msg_id}:{typ}"
     now = time.time()
     if key not in PROGRESS:
         PROGRESS[key] = {
@@ -607,7 +607,8 @@ def progress(current, total, message, typ, task_uuid=None):
             
 async def downstatus(client: Client, status_message: Message, chat, index: int, total_count: int, header_text: str = ""):
     msg_id = status_message.id
-    key = f"{msg_id}:down"
+    chat_id = status_message.chat.id
+    key = f"{chat_id}:{msg_id}:down"
     last_text = ""
     while True:
         rec = PROGRESS.get(key)
@@ -646,7 +647,8 @@ async def downstatus(client: Client, status_message: Message, chat, index: int, 
             
 async def upstatus(client: Client, status_message: Message, chat, index: int, total_count: int, header_text: str = ""):
     msg_id = status_message.id
-    key = f"{msg_id}:up"
+    chat_id = status_message.chat.id
+    key = f"{chat_id}:{msg_id}:up"
     last_text = ""
     while True:
         rec = PROGRESS.get(key)
@@ -2171,9 +2173,15 @@ async def process_links_logic(client: Client, message: Message, text: str, targe
 
             batch_temp.ACTIVE_TASKS[user_id] -= 1
             if batch_temp.ACTIVE_TASKS[user_id] < 0: batch_temp.ACTIVE_TASKS[user_id] = 0
+            
             if TASK_QUEUE[user_id]:
                 next_item = TASK_QUEUE[user_id].pop(0)
-                asyncio.create_task(start_task_final(next_item["client"], next_item["message"], next_item["data"], next_item["delay"], user_id))
+                try:
+                    asyncio.create_task(start_task_final(next_item["client"], next_item["message"], next_item["data"], next_item["delay"], user_id))
+                except Exception as e:
+                    print(f"❌ Queue Execution Failed for {user_id}: {e}")
+                    # Force the queue to keep moving if a task dies instantly
+                    batch_temp.ACTIVE_TASKS[user_id] -= 1 
 
             if acc and is_temp_client:  # <--- ONLY STOP IF TEMP
                 try: await acc.stop()
@@ -2604,22 +2612,40 @@ async def process_watcher_message(client, message):
                 except Exception:
                     pass
 
-            await handle_private(
-                client=app,
-                acc=owner_client,
-                message=message, 
-                chatid=chat_id, 
-                msgid=message.id, 
-                index=1, 
-                total_count=1, 
-                status_message=dummy_status, 
-                targets=targets,
-                delay=0, 
-                user_id=owner_id, 
-                task_uuid=uuid.uuid4().hex,
-                is_restricted=True,
-                allowed_types=allowed_types
-            )
+            # Register Watcher as an Active Task so it can be monitored/cancelled!
+            task_uuid = uuid.uuid4().hex
+            if owner_id not in ACTIVE_PROCESSES: 
+                ACTIVE_PROCESSES[owner_id] = {}
+            ACTIVE_PROCESSES[owner_id][task_uuid] = {
+                "user": f"Watcher({owner_id})",
+                "dest_title_name": "Watcher Targets",
+                "item": f"Live Download: ID {message.id}",
+                "started": time.time()
+            }
+
+            try:
+                await handle_private(
+                    client=app,
+                    acc=owner_client,
+                    message=message, 
+                    chatid=chat_id, 
+                    msgid=message.id, 
+                    index=1, 
+                    total_count=1, 
+                    status_message=dummy_status, 
+                    targets=targets,
+                    delay=0, 
+                    user_id=owner_id, 
+                    task_uuid=task_uuid,
+                    is_restricted=True,
+                    allowed_types=allowed_types
+                )
+            finally:
+                # Clean up the task from tracking when finished or cancelled
+                if task_uuid in ACTIVE_PROCESSES.get(owner_id, {}):
+                    del ACTIVE_PROCESSES[owner_id][task_uuid]
+                CANCEL_FLAGS.pop(task_uuid, None)
+                
             await dummy_status.delete()
             print("✅ [DEBUG WATCHER] Download/Upload Mode COMPLETE!")
         except Exception as e:
